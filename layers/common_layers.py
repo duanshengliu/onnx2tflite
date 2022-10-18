@@ -223,20 +223,12 @@ class TFGemm():
         weights = node_weights[node_inputs[1]].T
         bias = node_weights[node_inputs[2]] if len(node_inputs) > 2 else None
         weights = weights
-        if bias is None:
-            self.dense = keras.layers.Dense(weights.shape[1],
-                                            input_shape=(weights.shape[0],),
-                                            activation=None,
-                                            use_bias=False,
-                                            kernel_initializer=keras.initializers.Constant(weights))
-        else:
-            bias = bias[None, ...]
-            self.dense = keras.layers.Dense(weights.shape[1],
-                                            input_shape=(weights.shape[0],),
-                                            activation=None,
-                                            use_bias=True,
-                                            kernel_initializer=keras.initializers.Constant(weights),
-                                            bias_initializer=keras.initializers.Constant(bias))
+        self.dense = keras.layers.Dense(weights.shape[1],
+                                        input_shape=(weights.shape[0],),
+                                        activation=None,
+                                        weights=[weights] if bias is None else [weights, bias],
+                                        use_bias=False if bias is None else True)
+
     def __call__(self, inputs):
         return self.dense(inputs)
 

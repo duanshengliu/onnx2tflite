@@ -24,8 +24,9 @@ class TFConvTranspose():
         height, width, n_filters, channels = weights.shape
         self.pad = None
         self.conv = keras.layers.Conv2DTranspose(filters=n_filters, kernel_size=(height, width), strides=strides, padding='VALID', use_bias=False if bias is None else True,
-                                                    kernel_initializer=keras.initializers.Constant(weights),
-                                                    bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
+                                                    weights=[weights] if bias is None else [weights, bias],
+                                                    #kernel_initializer=keras.initializers.Constant(weights),
+                                                    #bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
                                                     output_padding=0,
                                                     dilation_rate=dilations)
         if pads is not None and max(pads) != 0:
@@ -51,7 +52,7 @@ class Convlution():
 
         weights = node_weights[node_inputs[1]].transpose(2,3,1,0)
         bias = node_weights[node_inputs[2]] if len(node_inputs) == 3 else None
-        
+
         if group == 1:
             self.conv = TFConv(in_channel, out_channel, kernel_shape, strides, dilations, pads, weights, bias)
         elif group == out_channel:
@@ -59,13 +60,13 @@ class Convlution():
             self.conv = TFDepthwiseConv2D(kernel_shape, strides, dilations, pads, weights, bias)
         else:
             self.conv = TFGroupConv(in_channel, out_channel, kernel_shape, strides, dilations, pads, group, weights, bias)
-    
+
     def __call__(self, inputs):
         return self.conv(inputs)
 
 class TFConv():
     # 常规卷积Standard convolution
-    def __init__(self, in_channel_num, out_channel_num, kernel_size=1, 
+    def __init__(self, in_channel_num, out_channel_num, kernel_size=1,
                         strides=1, dilations=1, pads=None, weights=None, bias=None):
         super().__init__()
 
@@ -80,14 +81,16 @@ class TFConv():
         if pads is not None and max(pads) == 1 and max(strides) == 1:
             self.conv = keras.layers.Conv2D(
                 out_channel_num, kernel_size, strides, "SAME", use_bias=False if bias is None else True,
-                kernel_initializer=keras.initializers.Constant(weights),
-                bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
+                weights=[weights] if bias is None else [weights, bias],
+                #kernel_initializer=keras.initializers.Constant(weights),
+                #bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
                 dilation_rate=dilations)
         else:
             self.conv = keras.layers.Conv2D(
                 out_channel_num, kernel_size, strides, "VALID", use_bias=False if bias is None else True,
-                kernel_initializer=keras.initializers.Constant(weights),
-                bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
+                weights=[weights] if bias is None else [weights, bias],
+                #kernel_initializer=keras.initializers.Constant(weights),
+                #bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias),
                 dilation_rate=dilations)
             if pads is not None and max(pads) != 0:
                 padding = None
@@ -104,7 +107,7 @@ class TFConv():
 
 class TFGroupConv():
     # 分组卷积Group Convolution
-    def __init__(self, in_channel_num, out_channel_num, kernel_size=1, 
+    def __init__(self, in_channel_num, out_channel_num, kernel_size=1,
                         strides=1, dilations=1, pads=None, groups=1, weights=None, bias=None):
         super().__init__()
         if isinstance(dilations, int):
@@ -124,21 +127,27 @@ class TFGroupConv():
             elif len(pads) == 4 and (pads[0] > 0 or pads[1] > 0 or pads[2] > 0 or pads[3] > 0):
                 padding = ((pads[0], pads[2]), (pads[1], pads[3]))
             self.pad = keras.layers.ZeroPadding2D(padding=padding)
-        
+
         self.convs = []
         for i in range(groups):
+            w = weights[:, :, :, i*out_channel_num:(i+1)*out_channel_num]
+            b = bias if bias is None else bias[i*out_channel_num:(i+1)*out_channel_num]
             if pads is not None and max(pads) == 1 and max(strides) == 1:
                 self.convs.append(keras.layers.Conv2D(
-                                out_channel_num, kernel_size, strides, 'SAME', use_bias=False if bias is None else True,
-                                dilation_rate=dilations,
-                                kernel_initializer=keras.initializers.Constant(weights[:, :, :, i*out_channel_num:(i+1)*out_channel_num]),
-                                bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias[i*out_channel_num:(i+1)*out_channel_num])))
+                                    out_channel_num, kernel_size, strides, 'SAME', use_bias=False if bias is None else True,
+                                    dilation_rate=dilations,
+                                    weights=[w] if bias is None else [w, b],
+                                    #kernel_initializer=keras.initializers.Constant(weights[:, :, :, i*out_channel_num:(i+1)*out_channel_num]),
+                                    #bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias[i*out_channel_num:(i+1)*out_channel_num])
+                                ))
             else:
                 self.convs.append(keras.layers.Conv2D(
                                     out_channel_num, kernel_size, strides, 'VALID', use_bias=False if bias is None else True,
                                     dilation_rate=dilations,
-                                    kernel_initializer=keras.initializers.Constant(weights[:, :, :, i*out_channel_num:(i+1)*out_channel_num]),
-                                    bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias[i*out_channel_num:(i+1)*out_channel_num])))
+                                    weights=[w] if bias is None else [w, b],
+                                    #kernel_initializer=keras.initializers.Constant(weights[:, :, :, i*out_channel_num:(i+1)*out_channel_num]),
+                                    #bias_initializer='zeros' if bias is None else keras.initializers.Constant(bias[i*out_channel_num:(i+1)*out_channel_num])
+                                ))
 
     def __call__(self, inputs):
         if self.pad is not None:
@@ -185,7 +194,7 @@ class TFDepthwiseConv2D():
                 elif len(pads) == 4 and (pads[0] > 0 or pads[1] > 0 or pads[2] > 0 or pads[3] > 0):
                     padding = ((pads[0], pads[2]), (pads[1], pads[3]))
                 self.pad = keras.layers.ZeroPadding2D(padding=padding)
-                
+
     def __call__(self, inputs):
         if self.pad:
             inputs = self.pad(inputs)
